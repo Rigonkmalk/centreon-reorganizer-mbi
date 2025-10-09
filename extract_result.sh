@@ -21,6 +21,6 @@ extract_result() {
 echo -e "suppress old files"
 suppress_old_file
 echo -e "extract result"
-extract_result
+extract_result > result.txt
 echo -e "extract missing date"
 python3 missing_date.py
