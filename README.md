@@ -9,6 +9,10 @@ This script is designed to parse and analyze result.txt files, providing a parse
 
 ## Usage
 
+```bash
+bash extract_result.sh > result.txt
+```
+
 You need to add inside this folder the result.txt output from Confluence Documentation related to the partitioned table's analysis.
 
 ```bash

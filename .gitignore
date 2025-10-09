@@ -1,3 +1,2 @@
-partition_analysis.txt
-partition_fix.sql
-result.txt
+*.sql
+*.txt
