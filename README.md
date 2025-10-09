@@ -6,10 +6,19 @@ This script is designed to parse and analyze result.txt files, providing a parse
 
 ## Dependencies
 - Python 3.x
-- mySQL Lib
 
-### How to install
+## Usage
 
-#### mySQL Lib
+You need to add inside this folder the result.txt output from Confluence Documentation related to the partitioned table's analysis.
 
-- Install mysql library using pip: `pip install mysql-connector-python`
+```bash
+python3 missing_dates.py
+```
+
+You can follow the file `partition_analysis.txt` for more details of what the script found.
+
+If you validate the results, you can execute the generated SQL `partition_fix.sql` script to fix the partitioned tables.
+
+```bash
+mysql centreon_storage < partition_fix.sql
+```
