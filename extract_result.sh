@@ -1,5 +1,6 @@
 #!/bin/bash -e
 # Extract the result.txt file from Confluence Documentation related to the partitioned table's analysis.
+# Author : mgarde & Paul "Rigonkmalk" Azema
 
 suppress_old_file() {
     if [ -f *.txt ]; then
