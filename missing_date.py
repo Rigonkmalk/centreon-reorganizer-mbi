@@ -137,13 +137,13 @@ class PartitionChecker:
             part_name = self.generate_partition_name(missing_date)
             unix_ts = int(missing_date.timestamp())
             all_partitions.append(
-                f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts})"
+                f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
 
         # Add the after partition back
         part_name = self.generate_partition_name(after_part["date"])
         all_partitions.append(
-            f"  PARTITION {part_name} VALUES LESS THAN ({after_part['unix_ts']})"
+            f"  PARTITION {part_name} VALUES LESS THAN ({after_part['unix_ts']}) ENGINE = InnoDB"
         )
 
         cmd += ",\n".join(all_partitions)
