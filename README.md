@@ -1,4 +1,9 @@
-# Script Parser MBI
+# Centreon MBI - Missing Partition Fixer
+
+## ⚠️ WARNING
+```
+This script need to be executed in a specific environment. And need to be helped with the Centreon's Customer Care team.
+```
 
 ## Description
 
@@ -10,19 +15,19 @@ This script is designed to parse and analyze result.txt files, providing a parse
 ## Usage
 
 ```bash
-bash extract_result.sh > result.txt
-```
-
-You need to add inside this folder the result.txt output from Confluence Documentation related to the partitioned table's analysis.
-
-```bash
-python3 missing_date.py
+bash extract_result.sh
 ```
 
 You can follow the file `partition_analysis.txt` for more details of what the script found.
 
 If you validate the results, you can execute the generated SQL `partition_fix.sql` script to fix the partitioned tables.
 
+### Apply fix
+
 ```bash
 mysql centreon_storage < partition_fix.sql
 ```
+
+## Credits
+
+`Claude 4.5 Thinking` for helping me in this python script.
