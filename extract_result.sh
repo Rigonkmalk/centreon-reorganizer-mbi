@@ -2,12 +2,12 @@
 # Extract the result.txt file from Confluence Documentation related to the partitioned table's analysis.
 
 suppress_old_file() {
-    if [ -n "$(ls *.txt)" ]; then
+    if [ -f *.txt ]; then
         for i in *.txt; do
             rm "$i"
         done
     fi
-    if [ -n "$(ls *.sql)" ]; then
+    if [ -f *.sql ]; then
         for i in *.sql; do
             rm "$i"
         done
