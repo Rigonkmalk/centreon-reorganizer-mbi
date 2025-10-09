@@ -25,3 +25,12 @@ echo -e "⚠️ extract result..."
 extract_result > result.txt
 echo -e "⚠️ extract missing date..."
 python3 missing_date.py
+
+echo -e "-- ====================================================================
+--
+-- ⚠️   WARNING: REVIEW CAREFULLY BEFORE EXECUTION!
+--
+-- Recommendations:
+--   1. Backup your database before making changes
+--   2. Check Unix timestamps are correct for your timezone
+-- ===================================================================="

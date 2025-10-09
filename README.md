@@ -1,6 +1,7 @@
 # Centreon MBI - Missing Partition Fixer
 
 ## ⚠️ WARNING
+
 ```
 This script need to be executed in a specific environment. And need to be helped with the Centreon's Customer Care team.
 ```
