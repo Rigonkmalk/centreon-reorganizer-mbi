@@ -19,9 +19,9 @@ extract_result() {
     echo "$extract"
 }
 
-echo -e "suppress old files"
+echo -e "⚠️ suppress old files..."
 suppress_old_file
-echo -e "extract result"
+echo -e "⚠️ extract result..."
 extract_result > result.txt
-echo -e "extract missing date"
+echo -e "⚠️ extract missing date..."
 python3 missing_date.py
