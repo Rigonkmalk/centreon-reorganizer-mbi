@@ -12,7 +12,7 @@ This script is designed to parse and analyze result.txt files, providing a parse
 You need to add inside this folder the result.txt output from Confluence Documentation related to the partitioned table's analysis.
 
 ```bash
-python3 missing_dates.py
+python3 missing_date.py
 ```
 
 You can follow the file `partition_analysis.txt` for more details of what the script found.
