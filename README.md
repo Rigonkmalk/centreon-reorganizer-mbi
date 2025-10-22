@@ -201,7 +201,7 @@ Contributions are welcome! Please ensure:
 
 ## License
 
-[Specify your license here]
+[MIT License](https://opensource.org/licenses/MIT)
 
 ## Support
 
