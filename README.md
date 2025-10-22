@@ -30,7 +30,7 @@ No installation required. Simply clone or download this repository:
 
 ```bash
 git clone https://github.com/Rigonkmalk/centreon-reorganizer-mbi.git
-cd script-parser-mbi
+cd centreon-reorganizer-mbi 
 ```
 
 ## Usage
