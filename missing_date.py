@@ -281,7 +281,8 @@ def parse_result_file(filename: str) -> Dict[str, List[Tuple]]:
 
 
 def main():
-    input_filename = "result.txt"
+    # Accept filename as command-line argument, default to result.txt
+    input_filename = sys.argv[1] if len(sys.argv) > 1 else "result.txt"
     analysis_filename = "partition_analysis.txt"
     sql_filename = "partition_fix.sql"
 
