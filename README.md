@@ -29,7 +29,7 @@ This tool analyzes Centreon Storage partitioned tables (`mod_bi_*` and `data_bin
 No installation required. Simply clone or download this repository:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Rigonkmalk/centreon-reorganizer-mbi.git
 cd script-parser-mbi
 ```
 
