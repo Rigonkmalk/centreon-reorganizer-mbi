@@ -5,20 +5,37 @@
 # Don't exit on error - we want to handle MySQL errors gracefully
 set +e
 
+# source dotenv
+if [[ -f ".env" ]]; then
+	source .env
+else
+	printf "missing .env file\n"
+	exit 1
+fi
+#
 # Default values
 SUPPRESS_FILES=false
 INPUT_FILE=""
 RUN_EXTRACTION=false
 ANALYZE_ONLY=false
 
+if [[ -z "$MYSQL_MBI_TABLE" ]]; then
+    # Variable vide → utiliser LIKE
+    TABLE_CONDITION="TABLE_NAME LIKE 'mod_bi%'"
+else
+    # Variable définie → construire le IN
+    SQL_FILTER="'${MYSQL_MBI_TABLE//,/\',\'}'"
+    TABLE_CONDITION="TABLE_NAME IN ($SQL_FILTER)"  # Que mettre ici ?
+fi
+
 extract_result() {
-    extract=$(for i in $(mysql -Ne "select distinct TABLE_NAME from information_schema.partitions where TABLE_SCHEMA='centreon_storage' and (TABLE_NAME like 'mod_bi%' OR TABLE_NAME like 'data_bin') and PARTITION_NAME is NOT NULL;" 2>&1); do
+	extract=$(for i in $(mysql -h $MYSQL_HOST -u $MYSQL_USER -p$MYSQL_PASSWORD -D$MYSQL_DATABASE -Ne "select distinct TABLE_NAME from information_schema.partitions where TABLE_SCHEMA='centreon_storage' and ($TABLE_CONDITION OR TABLE_NAME like 'data_bin') and PARTITION_NAME is NOT NULL;" 2>&1); do
         # Check if mysql command failed
         if [[ "$i" == ERROR* ]]; then
             echo "$i" >&2
             return 1
         fi
-        echo $i && mysql -e "select from_unixtime(PARTITION_DESCRIPTION), PARTITION_DESCRIPTION, PARTITION_ORDINAL_POSITION, TABLE_ROWS from information_schema.partitions where table_schema = 'centreon_storage' and table_name = '$i' order by PARTITION_ORDINAL_POSITION desc;" 2>&1
+        echo $i && mysql -h $MYSQL_HOST -u $MYSQL_USER -p$MYSQL_PASSWORD -D$MYSQL_DATABASE -e "select from_unixtime(PARTITION_DESCRIPTION), PARTITION_DESCRIPTION, PARTITION_ORDINAL_POSITION, TABLE_ROWS from information_schema.partitions where table_schema = 'centreon_storage' and table_name = '$i' order by PARTITION_ORDINAL_POSITION desc;" 2>&1
     done)
 
     # Check if extraction had errors
