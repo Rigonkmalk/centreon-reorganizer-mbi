@@ -19,7 +19,7 @@ This tool analyzes Centreon Storage partitioned tables (`mod_bi_*` and `data_bin
 
 ## Prerequisites
 
-- **Python 3.x**
+- **Python 3.9+** version 3.10+ is recommended
 - **MySQL/MariaDB** with access to the `centreon_storage` database
 - **Bash shell** (Linux/Unix environment)
 - **Centreon MBI** installation with partitioned tables
