@@ -40,6 +40,39 @@ Copy `.env.example` to `.env` and configure:
 - `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
 - `MYSQL_MBI_TABLE` - comma-separated list of specific tables, or empty to analyze all `mod_bi_*` tables
 
+## Testing
+
+### Run the test suite
+```bash
+bash tests/run_tests.sh
+```
+
+### Test structure
+
+Tests live in the `tests/` directory and are split into two categories:
+
+**Python analysis tests** — run `missing_date.py` against fixture input files and diff the output against expected reference files:
+- `tests/result_ok.txt` → `tests/partition_analysis_ok.txt` (no missing partitions)
+- `tests/result_NOK.txt` → `tests/partition_analysis_NOK.txt` (missing partitions detected)
+
+**Shell script tests** — validate `extract_result.sh` behavior without a MySQL connection:
+- `-f <file>` mode works on valid fixture files
+- Script exits non-zero on a missing input file
+
+### Regenerating expected output
+
+After an intentional change to `missing_date.py` output format, regenerate the reference files:
+
+```bash
+REGENERATE=1 bash tests/run_tests.sh
+```
+
+This overwrites the `tests/partition_analysis_*.txt` files. Commit the updated files alongside the code change.
+
+### CI
+
+The test suite runs automatically via GitHub Actions on every pull request to `master` (Python 3.10, Ubuntu latest). See `.github/workflows/ci.yml`.
+
 ## Key Implementation Details
 
 - Partitions use daily granularity with Unix timestamps as boundaries
