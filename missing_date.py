@@ -6,19 +6,24 @@ Reads partition data from result.txt and generates SQL fix commands
 
 import sys
 import re
+import argparse
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Tuple
 
 
 class PartitionChecker:
-    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None):
+    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: datetime = None):
         """
         Initialize with table name and partition data
         partition_data format: [(date_str, unix_timestamp, ordinal, row_count), ...]
+        reference_date: date used as "today" for tail-end gap detection (defaults to UTC today)
         """
         self.table_name = table_name
         self.partitions = []
         self.output_file = output_file
+        self.reference_date = reference_date or datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+        )
 
         for row in partition_data:
             try:
@@ -61,12 +66,9 @@ class PartitionChecker:
                 missing_dates.append(expected_next)
                 expected_next += timedelta(days=1)
 
-        # Check for missing dates after the last partition up to today
-        today = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
-        )
+        # Check for missing dates after the last partition up to the reference date
         expected_next = self.partitions[-1]["date"] + timedelta(days=1)
-        while expected_next <= today:
+        while expected_next <= self.reference_date:
             missing_dates.append(expected_next)
             expected_next += timedelta(days=1)
 
@@ -312,8 +314,22 @@ def parse_result_file(filename: str) -> Dict[str, List[Tuple]]:
 
 
 def main():
-    # Accept filename as command-line argument, default to result.txt
-    input_filename = sys.argv[1] if len(sys.argv) > 1 else "result.txt"
+    parser = argparse.ArgumentParser(description="Partition Gap Checker")
+    parser.add_argument("input_file", nargs="?", default="result.txt",
+                        help="Input file with partition data (default: result.txt)")
+    parser.add_argument("--reference-date", metavar="YYYY-MM-DD",
+                        help="Reference date for tail-end gap detection (default: today UTC)")
+    args = parser.parse_args()
+
+    input_filename = args.input_file
+    reference_date = None
+    if args.reference_date:
+        try:
+            reference_date = datetime.strptime(args.reference_date, "%Y-%m-%d")
+        except ValueError:
+            print(f"❌ Error: --reference-date must be in YYYY-MM-DD format")
+            sys.exit(1)
+
     analysis_filename = "partition_analysis.txt"
     sql_filename = "partition_fix.sql"
 
@@ -385,7 +401,7 @@ def main():
                 print(f"⚠️  Skipping {table_name} - no data provided")
                 continue
 
-            checker = PartitionChecker(table_name, partition_data, analysis_file)
+            checker = PartitionChecker(table_name, partition_data, analysis_file, reference_date)
             missing_dates = checker.display_report()
 
             if missing_dates:
