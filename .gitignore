@@ -1,3 +1,5 @@
 *.sql
 *.txt
+!tests/*.txt
+!tests/*.sh
 .env
