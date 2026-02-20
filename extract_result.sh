@@ -5,28 +5,11 @@
 # Don't exit on error - we want to handle MySQL errors gracefully
 set +e
 
-# source dotenv
-if [[ -f ".env" ]]; then
-	source .env
-else
-	printf "missing .env file\n"
-	exit 1
-fi
-#
 # Default values
 SUPPRESS_FILES=false
 INPUT_FILE=""
 RUN_EXTRACTION=false
 ANALYZE_ONLY=false
-
-if [[ -z "$MYSQL_MBI_TABLE" ]]; then
-    # Variable vide → utiliser LIKE
-    TABLE_CONDITION="TABLE_NAME LIKE 'mod_bi%'"
-else
-    # Variable définie → construire le IN
-    SQL_FILTER="'${MYSQL_MBI_TABLE//,/\',\'}'"
-    TABLE_CONDITION="TABLE_NAME IN ($SQL_FILTER)"  # Que mettre ici ?
-fi
 
 extract_result() {
 	extract=$(for i in $(mysql -h $MYSQL_HOST -u $MYSQL_USER -p$MYSQL_PASSWORD -D$MYSQL_DATABASE -Ne "select distinct TABLE_NAME from information_schema.partitions where TABLE_SCHEMA='centreon_storage' and ($TABLE_CONDITION OR TABLE_NAME like 'data_bin') and PARTITION_NAME is NOT NULL;" 2>&1); do
@@ -126,6 +109,22 @@ if [ "$ANALYZE_ONLY" = true ]; then
 else
     # No -f option: default behavior - connect to MySQL and extract
     INPUT_FILE="result.txt"
+
+    # Load MySQL credentials (only needed for extraction)
+    if [[ -f ".env" ]]; then
+        source .env
+    else
+        echo -e "❌ Error: missing .env file (required for MySQL connection)"
+        echo -e "Copy .env.example to .env and fill in your credentials."
+        exit 1
+    fi
+
+    if [[ -z "$MYSQL_MBI_TABLE" ]]; then
+        TABLE_CONDITION="TABLE_NAME LIKE 'mod_bi%'"
+    else
+        SQL_FILTER="'${MYSQL_MBI_TABLE//,/\',\'}'"
+        TABLE_CONDITION="TABLE_NAME IN ($SQL_FILTER)"
+    fi
 
     echo -e "⚠️  Connecting to MySQL and extracting partition data..."
 
