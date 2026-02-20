@@ -6,7 +6,7 @@ Reads partition data from result.txt and generates SQL fix commands
 
 import sys
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Tuple
 
 
@@ -45,7 +45,7 @@ class PartitionChecker:
 
     def find_missing_dates(self) -> List[datetime]:
         """Find missing dates in the partition sequence"""
-        if len(self.partitions) < 2:
+        if not self.partitions:
             return []
 
         missing_dates = []
@@ -60,6 +60,15 @@ class PartitionChecker:
             while expected_next < next_date:
                 missing_dates.append(expected_next)
                 expected_next += timedelta(days=1)
+
+        # Check for missing dates after the last partition up to today
+        today = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+        )
+        expected_next = self.partitions[-1]["date"] + timedelta(days=1)
+        while expected_next <= today:
+            missing_dates.append(expected_next)
+            expected_next += timedelta(days=1)
 
         return missing_dates
 
@@ -94,10 +103,14 @@ class PartitionChecker:
                     break
 
             if before_partition and after_partition:
-                # Generate reorganize command
+                # Gap between two existing partitions: use REORGANIZE PARTITION
                 cmd = self.create_reorganize_command(
                     before_partition, after_partition, group
                 )
+                commands.append(cmd)
+            elif before_partition and not after_partition:
+                # Tail-end gap (missing dates after the last partition): use ADD PARTITION
+                cmd = self.create_add_partition_command(group)
                 commands.append(cmd)
 
         return commands
@@ -135,7 +148,7 @@ class PartitionChecker:
         all_partitions = []
         for missing_date in missing_dates:
             part_name = self.generate_partition_name(missing_date)
-            unix_ts = int(missing_date.timestamp())
+            unix_ts = int(missing_date.replace(tzinfo=timezone.utc).timestamp())
             all_partitions.append(
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
@@ -145,6 +158,24 @@ class PartitionChecker:
         all_partitions.append(
             f"  PARTITION {part_name} VALUES LESS THAN ({after_part['unix_ts']}) ENGINE = InnoDB"
         )
+
+        cmd += ",\n".join(all_partitions)
+        cmd += "\n);"
+
+        return cmd
+
+    def create_add_partition_command(self, missing_dates: List[datetime]) -> str:
+        """Create ALTER TABLE ADD PARTITION command for tail-end missing partitions"""
+        cmd = f"ALTER TABLE {self.table_name}\n"
+        cmd += f"ADD PARTITION (\n"
+
+        all_partitions = []
+        for missing_date in missing_dates:
+            part_name = self.generate_partition_name(missing_date)
+            unix_ts = int(missing_date.replace(tzinfo=timezone.utc).timestamp())
+            all_partitions.append(
+                f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
+            )
 
         cmd += ",\n".join(all_partitions)
         cmd += "\n);"
