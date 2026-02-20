@@ -187,6 +187,39 @@ WHERE TABLE_SCHEMA='centreon_storage'
 
 Missing partitions are filled using `ALTER TABLE ... REORGANIZE PARTITION` commands that split existing partitions without data loss.
 
+## CI/CD
+
+This project uses **GitHub Actions** for continuous integration. The pipeline runs automatically on every pull request targeting the `master` branch.
+
+### Workflow
+
+| Trigger | Action |
+|---------|--------|
+| Pull request → `master` | Run full test suite |
+
+### What the CI checks
+
+- **Python analysis tests**: runs `missing_date.py` against fixture files and compares output to expected results
+- **Shell script tests**: validates `extract_result.sh` behavior (file mode, error handling)
+
+The workflow uses **Python 3.10** and requires no external services (MySQL is not needed for the test suite).
+
+### Pipeline configuration
+
+See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full workflow definition.
+
+### Running CI checks locally
+
+```bash
+bash tests/run_tests.sh
+```
+
+To regenerate expected output files after intentional code changes:
+
+```bash
+REGENERATE=1 bash tests/run_tests.sh
+```
+
 ## Contributing
 
 Contributions are welcome! Please ensure:
