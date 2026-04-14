@@ -1,5 +1,7 @@
 *.sql
 *.txt
+*.json
 !tests/*.txt
 !tests/*.sh
 .env
+.claude/settings.local.json
