@@ -13,3 +13,4 @@ Detailed guidance is split across `.claude/rules/`:
 Skills (automated workflows):
 
 - [Testing workflow](.claude/skills/testing-workflow/SKILL.md) — mandatory steps when writing tests
+- [commit and push](.claude/skills/commit-and-push/SKILL.md) - mandatory skills when commit and push
