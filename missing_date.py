@@ -8,16 +8,29 @@ import sys
 import re
 import argparse
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
+
+
+class ParseError(Exception):
+    """Raised when the input partition file cannot be parsed."""
 
 
 class PartitionChecker:
-    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: datetime = None):
+    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: Optional[datetime] = None):
         """
         Initialize with table name and partition data
         partition_data format: [(date_str, unix_timestamp, ordinal, row_count), ...]
-        reference_date: date used as "today" for tail-end gap detection (defaults to UTC today)
+        reference_date: naive UTC datetime used as "today" for tail-end gap detection.
+            Must not carry tzinfo — pass datetime(2026, 2, 20) not datetime(..., tzinfo=utc).
+            Raises ValueError if a timezone-aware datetime is provided.
+            Defaults to today at midnight UTC (naive).
         """
+        if reference_date is not None and reference_date.tzinfo is not None:
+            raise ValueError(
+                "reference_date must be a naive datetime (no tzinfo). "
+                "Strip the timezone before passing, e.g. "
+                "datetime.now(timezone.utc).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)."
+            )
         self.table_name = table_name
         self.partitions = []
         self.output_file = output_file
@@ -155,10 +168,14 @@ class PartitionChecker:
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
 
-        # Add the after partition back
+        # Add the after partition back.
+        # Re-derive the timestamp from the date string (UTC) so all boundaries in
+        # the command are computed consistently — the stored unix_ts from a
+        # non-UTC MySQL server would otherwise produce mixed boundaries.
         part_name = self.generate_partition_name(after_part["date"])
+        after_unix_ts = int(after_part["date"].replace(tzinfo=timezone.utc).timestamp())
         all_partitions.append(
-            f"  PARTITION {part_name} VALUES LESS THAN ({after_part['unix_ts']}) ENGINE = InnoDB"
+            f"  PARTITION {part_name} VALUES LESS THAN ({after_unix_ts}) ENGINE = InnoDB"
         )
 
         cmd += ",\n".join(all_partitions)
@@ -169,7 +186,7 @@ class PartitionChecker:
     def create_add_partition_command(self, missing_dates: List[datetime]) -> str:
         """Create ALTER TABLE ADD PARTITION command for tail-end missing partitions"""
         cmd = f"ALTER TABLE {self.table_name}\n"
-        cmd += f"ADD PARTITION (\n"
+        cmd += "ADD PARTITION (\n"
 
         all_partitions = []
         for missing_date in missing_dates:
@@ -197,7 +214,7 @@ class PartitionChecker:
             )
 
         # Display partition details
-        self.print_output(f"\nExisting Partitions:")
+        self.print_output("\nExisting Partitions:")
         self.print_output(
             f"{'Date':<20} {'Unix Timestamp':<15} {'Ordinal':<10} {'Rows':<10}"
         )
@@ -219,7 +236,7 @@ class PartitionChecker:
             return missing_dates
         else:
             self.print_output(
-                f"\n✅ No missing dates found. Partitions are continuous."
+                "\n✅ No missing dates found. Partitions are continuous."
             )
             return []
 
@@ -304,11 +321,11 @@ def parse_result_file(filename: str) -> Dict[str, List[Tuple]]:
             tables_data[current_table] = current_data
 
     except FileNotFoundError:
-        print(f"❌ Error: File '{filename}' not found!")
-        sys.exit(1)
+        raise ParseError(f"File '{filename}' not found")
+    except ParseError:
+        raise
     except Exception as e:
-        print(f"❌ Error parsing file: {e}")
-        sys.exit(1)
+        raise ParseError(f"Error parsing file: {e}") from e
 
     return tables_data
 
@@ -327,7 +344,7 @@ def main():
         try:
             reference_date = datetime.strptime(args.reference_date, "%Y-%m-%d")
         except ValueError:
-            print(f"❌ Error: --reference-date must be in YYYY-MM-DD format")
+            print("❌ Error: --reference-date must be in YYYY-MM-DD format")
             sys.exit(1)
 
     analysis_filename = "partition_analysis.txt"
@@ -339,17 +356,21 @@ def main():
 
     # Parse input file
     print(f"📖 Reading partition data from '{input_filename}'...")
-    tables_data = parse_result_file(input_filename)
+    try:
+        tables_data = parse_result_file(input_filename)
+    except ParseError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     if not tables_data:
         print(f"❌ No table data found in '{input_filename}'")
-        print(f"\nExpected format:")
-        print(f"table_name")
+        print("\nExpected format:")
+        print("table_name")
         print(
-            f"from_unixtime(PARTITION_DESCRIPTION) PARTITION_DESCRIPTION PARTITION_ORDINAL_POSITION TABLE_ROWS"
+            "from_unixtime(PARTITION_DESCRIPTION) PARTITION_DESCRIPTION PARTITION_ORDINAL_POSITION TABLE_ROWS"
         )
-        print(f"2025-10-09 00:00:00 1759964400 90 0")
-        print(f"2025-10-08 00:00:00 1759878000 89 0")
+        print("2025-10-09 00:00:00 1759964400 90 0")
+        print("2025-10-08 00:00:00 1759878000 89 0")
         sys.exit(1)
 
     print(f"✅ Found {len(tables_data)} table(s): {', '.join(tables_data.keys())}\n")
@@ -361,7 +382,7 @@ def main():
     ):
         # Write headers
         analysis_file.write(f"{'=' * 70}\n")
-        analysis_file.write(f"PARTITION ANALYSIS REPORT\n")
+        analysis_file.write("PARTITION ANALYSIS REPORT\n")
         analysis_file.write(
             f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         )
@@ -369,25 +390,25 @@ def main():
         analysis_file.write(f"{'=' * 70}\n")
 
         sql_file.write(f"-- {'=' * 68}\n")
-        sql_file.write(f"-- PARTITION FIX SQL COMMANDS\n")
+        sql_file.write("-- PARTITION FIX SQL COMMANDS\n")
         sql_file.write(
             f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         )
         sql_file.write(f"-- Source: {input_filename}\n")
         sql_file.write(f"-- {'=' * 68}\n")
-        sql_file.write(f"-- \n")
-        sql_file.write(f"-- ⚠️  WARNING: REVIEW CAREFULLY BEFORE EXECUTION!\n")
-        sql_file.write(f"-- \n")
-        sql_file.write(f"-- Recommendations:\n")
-        sql_file.write(f"--   1. Backup your database before making changes\n")
-        sql_file.write(f"--   2. Verify partition names match your naming convention\n")
-        sql_file.write(f"--   3. Check Unix timestamps are correct for your timezone\n")
-        sql_file.write(f"--   4. Test on a non-production environment first\n")
-        sql_file.write(f"--   5. Execute commands one at a time and verify results\n")
+        sql_file.write("-- \n")
+        sql_file.write("-- ⚠️  WARNING: REVIEW CAREFULLY BEFORE EXECUTION!\n")
+        sql_file.write("-- \n")
+        sql_file.write("-- Recommendations:\n")
+        sql_file.write("--   1. Backup your database before making changes\n")
+        sql_file.write("--   2. Verify partition names match your naming convention\n")
+        sql_file.write("--   3. Check Unix timestamps are correct for your timezone\n")
+        sql_file.write("--   4. Test on a non-production environment first\n")
+        sql_file.write("--   5. Execute commands one at a time and verify results\n")
         sql_file.write(f"-- {'=' * 68}\n\n")
 
         print(f"{'=' * 70}")
-        print(f"PARTITION ANALYSIS REPORT")
+        print("PARTITION ANALYSIS REPORT")
         print(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'=' * 70}")
 
@@ -435,7 +456,7 @@ def main():
 
         # Write summary
         summary = f"\n{'=' * 70}\n"
-        summary += f"SUMMARY\n"
+        summary += "SUMMARY\n"
         summary += f"{'=' * 70}\n"
         summary += f"Total tables analyzed: {total_tables}\n"
         summary += f"Tables with missing partitions: {tables_with_issues}\n"
@@ -448,14 +469,14 @@ def main():
 
         if all_sql_commands:
             sql_file.write(f"\n-- {'=' * 68}\n")
-            sql_file.write(f"-- SUMMARY\n")
+            sql_file.write("-- SUMMARY\n")
             sql_file.write(f"-- {'=' * 68}\n")
             sql_file.write(f"-- Total tables with issues: {tables_with_issues}\n")
             sql_file.write(f"-- Total SQL commands: {len(all_sql_commands)}\n")
             sql_file.write(f"-- {'=' * 68}\n")
 
     # Final output
-    print(f"\n📄 Output files created:")
+    print("\n📄 Output files created:")
     print(f"   ✅ {analysis_filename} - Detailed analysis report")
     print(f"   ✅ {sql_filename} - SQL commands ready for execution")
 
@@ -463,7 +484,7 @@ def main():
         print(f"\n⚠️  {tables_with_issues} table(s) require attention!")
         print(f"   Review '{sql_filename}' before executing commands.")
     else:
-        print(f"\n✅ All tables are OK! No missing partitions detected.")
+        print("\n✅ All tables are OK! No missing partitions detected.")
 
     print()
 

@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from missing_date import PartitionChecker, parse_result_file
+from missing_date import ParseError, PartitionChecker, parse_result_file
 
 TESTS_DIR = pathlib.Path(__file__).parent
 REFERENCE_DATE = datetime(2026, 2, 20)  # naive, matches PartitionChecker internals
@@ -222,6 +222,39 @@ def test_parse_result_file_nok_fixture():
 
 
 # Test 21
-def test_parse_result_file_missing_file_exits(tmp_path):
-    with pytest.raises(SystemExit):
+def test_parse_result_file_missing_file_raises(tmp_path):
+    with pytest.raises(ParseError):
         parse_result_file(str(tmp_path / "does_not_exist.txt"))
+
+
+# ── PartitionChecker — reference_date contract ───────────────────────────────
+
+# Test 22
+def test_reference_date_timezone_aware_raises():
+    with pytest.raises(ValueError, match="naive"):
+        PartitionChecker("t", [], reference_date=datetime(2026, 2, 20, tzinfo=timezone.utc))
+
+
+# Test 23
+def test_reference_date_naive_accepted():
+    checker = PartitionChecker("t", [], reference_date=datetime(2026, 2, 20))
+    assert checker.reference_date == datetime(2026, 2, 20)
+
+
+# ── create_reorganize_command — consistent UTC timestamps ────────────────────
+
+# Test 24
+def test_create_reorganize_command_uses_utc_timestamp_for_after_partition():
+    # after_part has a unix_ts that does NOT match UTC midnight (simulates non-UTC server)
+    non_utc_unix_ts = _utc_ts(2026, 2, 20) + 36000  # 10-hour offset
+    rows = [
+        _row(2026, 2, 18, 1),
+        (datetime(2026, 2, 20).strftime("%Y-%m-%d %H:%M:%S"), str(non_utc_unix_ts), "2", "0"),
+    ]
+    checker = _checker(rows, reference_date=datetime(2026, 2, 20))
+    before = checker.partitions[0]
+    after = checker.partitions[1]
+    sql = checker.create_reorganize_command(before, after, [datetime(2026, 2, 19)])
+    expected_utc_ts = _utc_ts(2026, 2, 20)
+    assert str(expected_utc_ts) in sql
+    assert str(non_utc_unix_ts) not in sql
