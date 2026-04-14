@@ -1,0 +1,19 @@
+[project]
+name = "centreon-reorganizer-mbi"
+version = "0.1.0"
+description = "Detect and fix missing date partitions in Centreon MBI database tables"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+
+[tool.ruff]
+extend-select = []
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
