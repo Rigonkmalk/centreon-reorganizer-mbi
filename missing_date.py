@@ -8,16 +8,29 @@ import sys
 import re
 import argparse
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
+
+
+class ParseError(Exception):
+    """Raised when the input partition file cannot be parsed."""
 
 
 class PartitionChecker:
-    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: datetime = None):
+    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: Optional[datetime] = None):
         """
         Initialize with table name and partition data
         partition_data format: [(date_str, unix_timestamp, ordinal, row_count), ...]
-        reference_date: date used as "today" for tail-end gap detection (defaults to UTC today)
+        reference_date: naive UTC datetime used as "today" for tail-end gap detection.
+            Must not carry tzinfo — pass datetime(2026, 2, 20) not datetime(..., tzinfo=utc).
+            Raises ValueError if a timezone-aware datetime is provided.
+            Defaults to today at midnight UTC (naive).
         """
+        if reference_date is not None and reference_date.tzinfo is not None:
+            raise ValueError(
+                "reference_date must be a naive datetime (no tzinfo). "
+                "Strip the timezone before passing, e.g. "
+                "datetime.now(timezone.utc).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)."
+            )
         self.table_name = table_name
         self.partitions = []
         self.output_file = output_file
@@ -155,10 +168,14 @@ class PartitionChecker:
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
 
-        # Add the after partition back
+        # Add the after partition back.
+        # Re-derive the timestamp from the date string (UTC) so all boundaries in
+        # the command are computed consistently — the stored unix_ts from a
+        # non-UTC MySQL server would otherwise produce mixed boundaries.
         part_name = self.generate_partition_name(after_part["date"])
+        after_unix_ts = int(after_part["date"].replace(tzinfo=timezone.utc).timestamp())
         all_partitions.append(
-            f"  PARTITION {part_name} VALUES LESS THAN ({after_part['unix_ts']}) ENGINE = InnoDB"
+            f"  PARTITION {part_name} VALUES LESS THAN ({after_unix_ts}) ENGINE = InnoDB"
         )
 
         cmd += ",\n".join(all_partitions)
@@ -304,11 +321,11 @@ def parse_result_file(filename: str) -> Dict[str, List[Tuple]]:
             tables_data[current_table] = current_data
 
     except FileNotFoundError:
-        print(f"❌ Error: File '{filename}' not found!")
-        sys.exit(1)
+        raise ParseError(f"File '{filename}' not found")
+    except ParseError:
+        raise
     except Exception as e:
-        print(f"❌ Error parsing file: {e}")
-        sys.exit(1)
+        raise ParseError(f"Error parsing file: {e}") from e
 
     return tables_data
 
@@ -339,7 +356,11 @@ def main():
 
     # Parse input file
     print(f"📖 Reading partition data from '{input_filename}'...")
-    tables_data = parse_result_file(input_filename)
+    try:
+        tables_data = parse_result_file(input_filename)
+    except ParseError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     if not tables_data:
         print(f"❌ No table data found in '{input_filename}'")
