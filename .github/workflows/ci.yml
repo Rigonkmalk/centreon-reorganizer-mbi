@@ -20,13 +20,13 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv pip install --system pytest ruff
+        run: uv sync --extra dev
 
       - name: Lint
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Run snapshot and shell tests
         run: bash tests/run_tests.sh
 
       - name: Run pytest unit tests
-        run: pytest tests/
+        run: uv run pytest tests/
