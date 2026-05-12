@@ -241,12 +241,14 @@ def test_reference_date_naive_accepted():
     assert checker.reference_date == datetime(2026, 2, 20)
 
 
-# ── create_reorganize_command — consistent UTC timestamps ────────────────────
+# ── create_reorganize_command — preserve server timezone boundaries ───────────
 
 # Test 24
-def test_create_reorganize_command_uses_utc_timestamp_for_after_partition():
-    # after_part has a unix_ts that does NOT match UTC midnight (simulates non-UTC server)
-    non_utc_unix_ts = _utc_ts(2026, 2, 20) + 36000  # 10-hour offset
+def test_create_reorganize_command_preserves_original_boundary_for_after_partition():
+    # after_part has a unix_ts offset from UTC midnight (simulates non-UTC server).
+    # The REORGANIZE INTO must use the original boundary so MySQL does not reject
+    # the command for changing the total range covered by the partition.
+    non_utc_unix_ts = _utc_ts(2026, 2, 20) + 36000  # 10-hour offset (UTC+10)
     rows = [
         _row(2026, 2, 18, 1),
         (datetime(2026, 2, 20).strftime("%Y-%m-%d %H:%M:%S"), str(non_utc_unix_ts), "2", "0"),
@@ -255,6 +257,6 @@ def test_create_reorganize_command_uses_utc_timestamp_for_after_partition():
     before = checker.partitions[0]
     after = checker.partitions[1]
     sql = checker.create_reorganize_command(before, after, [datetime(2026, 2, 19)])
-    expected_utc_ts = _utc_ts(2026, 2, 20)
-    assert str(expected_utc_ts) in sql
-    assert str(non_utc_unix_ts) not in sql
+    # after_partition must keep its original unix_ts, not a UTC-derived value
+    assert str(non_utc_unix_ts) in sql
+    assert str(_utc_ts(2026, 2, 20)) not in sql
