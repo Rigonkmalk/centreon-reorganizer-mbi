@@ -155,27 +155,25 @@ class PartitionChecker:
 
         partition_name_after = self.generate_partition_name(after_part["date"])
 
-        # Build the reorganize command
         cmd = f"ALTER TABLE {self.table_name}\n"
         cmd += f"REORGANIZE PARTITION {partition_name_after} INTO (\n"
 
-        # Add all missing partitions
         all_partitions = []
         for missing_date in missing_dates:
             part_name = self.generate_partition_name(missing_date)
-            unix_ts = int(missing_date.replace(tzinfo=timezone.utc).timestamp())
+            # Anchor on before_part to preserve the server's timezone offset.
+            # MySQL requires strict monotonically increasing boundaries and that
+            # the combined range of the new partitions equals the original range.
+            days_delta = (missing_date - before_part["date"]).days
+            unix_ts = before_part["unix_ts"] + days_delta * 86400
             all_partitions.append(
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
 
-        # Add the after partition back.
-        # Re-derive the timestamp from the date string (UTC) so all boundaries in
-        # the command are computed consistently — the stored unix_ts from a
-        # non-UTC MySQL server would otherwise produce mixed boundaries.
-        part_name = self.generate_partition_name(after_part["date"])
-        after_unix_ts = int(after_part["date"].replace(tzinfo=timezone.utc).timestamp())
+        # Re-add after_partition with its original boundary so the reorganized
+        # range exactly covers the original partition's range (MySQL requirement).
         all_partitions.append(
-            f"  PARTITION {part_name} VALUES LESS THAN ({after_unix_ts}) ENGINE = InnoDB"
+            f"  PARTITION {partition_name_after} VALUES LESS THAN ({after_part['unix_ts']}) ENGINE = InnoDB"
         )
 
         cmd += ",\n".join(all_partitions)
@@ -188,10 +186,14 @@ class PartitionChecker:
         cmd = f"ALTER TABLE {self.table_name}\n"
         cmd += "ADD PARTITION (\n"
 
+        last_part = self.partitions[-1]
         all_partitions = []
         for missing_date in missing_dates:
             part_name = self.generate_partition_name(missing_date)
-            unix_ts = int(missing_date.replace(tzinfo=timezone.utc).timestamp())
+            # Anchor on the last existing partition to preserve the server's
+            # timezone offset, keeping boundaries consistent with the table.
+            days_delta = (missing_date - last_part["date"]).days
+            unix_ts = last_part["unix_ts"] + days_delta * 86400
             all_partitions.append(
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
