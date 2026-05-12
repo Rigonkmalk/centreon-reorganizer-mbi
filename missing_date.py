@@ -57,9 +57,10 @@ class PartitionChecker:
 
     def print_output(self, message):
         """Print to both console and file"""
-        print(message)
+        stripped = "\n".join(line.rstrip() for line in message.split("\n"))
+        print(stripped)
         if self.output_file:
-            self.output_file.write(message + "\n")
+            self.output_file.write(stripped + "\n")
 
     def find_missing_dates(self) -> List[datetime]:
         """Find missing dates in the partition sequence"""
