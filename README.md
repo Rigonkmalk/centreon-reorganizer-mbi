@@ -30,12 +30,28 @@ No installation required. Simply clone or download this repository:
 
 ```bash
 git clone https://github.com/Rigonkmalk/centreon-reorganizer-mbi.git
-cd centreon-reorganizer-mbi 
+cd centreon-reorganizer-mbi
 ```
 
 ## Usage
 
 ### Basic Usage
+
+Copy .env.example for proper usage :
+
+```bash
+cp .env.example .env
+```
+
+Change args using your proper definition :
+
+| Arg | Default | Description |
+|-----------|---------|-------------|
+| MYSQL_HOST|CHANGEME | MySQL / MariaDB Host |
+| MYSQL_USER|CHANGEME | MySQL / MariaDB User |
+| MYSQL_PASS|CHANGEME | MySQL / MariaDB Password|
+| MYSQL_DATABASE|centreon_storage | MySQL / MariaDB Database|
+| MYSQL_MBI_TABLE| mod_bi_hostavailability,mod_bi_metriccentilemonthlyvalue,mod_bi_metricdailyvalue,mod_bi_metrichourlyvalue,mod_bi_serviceavailability | MBI Partition tables, keep it empty if you need to analyze every mod_bi* tables |
 
 Extract partition data from MySQL and analyze it:
 
