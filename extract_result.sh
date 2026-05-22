@@ -12,6 +12,20 @@ RUN_EXTRACTION=false
 ANALYZE_ONLY=false
 
 extract_result() {
+    # Capture the server timezone so missing_date.py can align its calculations.
+    # If @@global.time_zone is 'SYSTEM', fall back to @@system_time_zone (the OS tz).
+    # TIMEDIFF gives the current UTC offset as a robust fallback when the named
+    # zone is an abbreviation (e.g. CEST) that ZoneInfo cannot resolve.
+    tz_info=$(mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -D"$MYSQL_DATABASE" -Ne \
+        "SELECT IF(@@global.time_zone='SYSTEM', @@system_time_zone, @@global.time_zone), TIMEDIFF(NOW(), UTC_TIMESTAMP());" 2>&1)
+    if [[ "$tz_info" == ERROR* ]]; then
+        echo "$tz_info" >&2
+        return 1
+    fi
+    tz_name=$(echo "$tz_info" | awk '{print $1}')
+    tz_offset=$(echo "$tz_info" | awk '{print $2}')
+    echo "# MYSQL_TIMEZONE: ${tz_name} ${tz_offset}"
+
 	extract=$(for i in $(mysql -h $MYSQL_HOST -u $MYSQL_USER -p$MYSQL_PASSWORD -D$MYSQL_DATABASE -Ne "select distinct TABLE_NAME from information_schema.partitions where TABLE_SCHEMA='centreon_storage' and ($TABLE_CONDITION OR TABLE_NAME like 'data_bin') and PARTITION_NAME is NOT NULL;" 2>&1); do
         # Check if mysql command failed
         if [[ "$i" == ERROR* ]]; then
