@@ -34,14 +34,14 @@ run_python_test() {
         return
     fi
 
-    if diff <(grep -v "^Generated:" partition_analysis.txt) \
-            <(grep -v "^Generated:" "$expected") > /dev/null; then
+    if diff <(grep -vE "^(Generated:|Server timezone:)" partition_analysis.txt) \
+            <(grep -vE "^(Generated:|Server timezone:)" "$expected") > /dev/null; then
         echo "    ✅ PASS"
         PASS=$((PASS + 1))
     else
         echo "    ❌ FAIL - diff:"
-        diff <(grep -v "^Generated:" partition_analysis.txt) \
-             <(grep -v "^Generated:" "$expected") || true
+        diff <(grep -vE "^(Generated:|Server timezone:)" partition_analysis.txt) \
+             <(grep -vE "^(Generated:|Server timezone:)" "$expected") || true
         FAIL=$((FAIL + 1))
     fi
     cleanup

@@ -7,23 +7,92 @@ Reads partition data from result.txt and generates SQL fix commands
 import sys
 import re
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Dict, Optional, Tuple
+
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:  # Python < 3.9 fallback
+    ZoneInfo = None  # type: ignore[assignment]
+    ZoneInfoNotFoundError = Exception  # type: ignore[assignment,misc]
+
+
+TIMEZONE_HEADER_RE = re.compile(
+    r"^#\s*MYSQL_TIMEZONE:\s*(?P<name>\S+)(?:\s+(?P<offset>[+-]?\d{1,3}:\d{2}(?::\d{2})?))?\s*$"
+)
 
 
 class ParseError(Exception):
     """Raised when the input partition file cannot be parsed."""
 
 
+def _parse_offset(offset: str) -> Optional[timezone]:
+    """Parse 'HH:MM:SS' or '±HH:MM' MySQL TIMEDIFF output into a fixed-offset timezone."""
+    sign = 1
+    s = offset
+    if s.startswith("-"):
+        sign = -1
+        s = s[1:]
+    elif s.startswith("+"):
+        s = s[1:]
+    parts = s.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        return None
+    return timezone(sign * timedelta(hours=hours, minutes=minutes, seconds=seconds))
+
+
+def resolve_timezone(name: Optional[str], offset: Optional[str] = None) -> Optional[tzinfo]:
+    """Resolve a tzinfo from a named zone (DST-aware) with offset fallback."""
+    if name and ZoneInfo is not None:
+        try:
+            return ZoneInfo(name)
+        except ZoneInfoNotFoundError:
+            pass
+        except Exception:
+            pass
+    if offset:
+        return _parse_offset(offset)
+    return None
+
+
+def extract_metadata(filename: str) -> Dict[str, Optional[str]]:
+    """Read leading '# MYSQL_TIMEZONE:' header (if any) from the result file."""
+    meta: Dict[str, Optional[str]] = {"timezone_name": None, "timezone_offset": None}
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if not stripped.startswith("#"):
+                    break
+                m = TIMEZONE_HEADER_RE.match(stripped)
+                if m:
+                    meta["timezone_name"] = m.group("name")
+                    meta["timezone_offset"] = m.group("offset")
+                    break
+    except FileNotFoundError:
+        pass
+    return meta
+
+
 class PartitionChecker:
-    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: Optional[datetime] = None):
+    def __init__(self, table_name: str, partition_data: List[Tuple], output_file=None, reference_date: Optional[datetime] = None, server_timezone: Optional[tzinfo] = None):
         """
         Initialize with table name and partition data
         partition_data format: [(date_str, unix_timestamp, ordinal, row_count), ...]
-        reference_date: naive UTC datetime used as "today" for tail-end gap detection.
-            Must not carry tzinfo — pass datetime(2026, 2, 20) not datetime(..., tzinfo=utc).
-            Raises ValueError if a timezone-aware datetime is provided.
-            Defaults to today at midnight UTC (naive).
+        reference_date: naive datetime used as "today" for tail-end gap detection.
+            Must not carry tzinfo. Defaults to today at midnight in server_timezone
+            (or UTC if server_timezone is not provided).
+        server_timezone: tzinfo of the MySQL server. When provided, new partition
+            boundaries are computed as midnight in that zone (DST-aware via ZoneInfo)
+            instead of using a fixed 86400-second daily delta.
         """
         if reference_date is not None and reference_date.tzinfo is not None:
             raise ValueError(
@@ -34,9 +103,13 @@ class PartitionChecker:
         self.table_name = table_name
         self.partitions = []
         self.output_file = output_file
-        self.reference_date = reference_date or datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
-        )
+        self.server_timezone = server_timezone
+        if reference_date is None:
+            now_tz = server_timezone or timezone.utc
+            reference_date = datetime.now(now_tz).replace(
+                hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+            )
+        self.reference_date = reference_date
 
         for row in partition_data:
             try:
@@ -91,6 +164,17 @@ class PartitionChecker:
     def generate_partition_name(self, date: datetime) -> str:
         """Generate partition name from date"""
         return f"p{date.strftime('%Y%m%d')}"
+
+    def _compute_unix_ts(self, anchor_part: Dict, missing_date: datetime) -> int:
+        """Compute the unix_ts boundary for a missing partition.
+
+        With server_timezone set, derive midnight-in-server-tz (DST-aware).
+        Otherwise fall back to anchor + days_delta * 86400.
+        """
+        if self.server_timezone is not None:
+            return int(missing_date.replace(tzinfo=self.server_timezone).timestamp())
+        days_delta = (missing_date - anchor_part["date"]).days
+        return anchor_part["unix_ts"] + days_delta * 86400
 
     def generate_reorganize_commands(self, missing_dates: List[datetime]) -> List[str]:
         """Generate SQL commands to add missing partitions"""
@@ -162,11 +246,9 @@ class PartitionChecker:
         all_partitions = []
         for missing_date in missing_dates:
             part_name = self.generate_partition_name(missing_date)
-            # Anchor on before_part to preserve the server's timezone offset.
             # MySQL requires strict monotonically increasing boundaries and that
             # the combined range of the new partitions equals the original range.
-            days_delta = (missing_date - before_part["date"]).days
-            unix_ts = before_part["unix_ts"] + days_delta * 86400
+            unix_ts = self._compute_unix_ts(before_part, missing_date)
             all_partitions.append(
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
@@ -191,10 +273,7 @@ class PartitionChecker:
         all_partitions = []
         for missing_date in missing_dates:
             part_name = self.generate_partition_name(missing_date)
-            # Anchor on the last existing partition to preserve the server's
-            # timezone offset, keeping boundaries consistent with the table.
-            days_delta = (missing_date - last_part["date"]).days
-            unix_ts = last_part["unix_ts"] + days_delta * 86400
+            unix_ts = self._compute_unix_ts(last_part, missing_date)
             all_partitions.append(
                 f"  PARTITION {part_name} VALUES LESS THAN ({unix_ts}) ENGINE = InnoDB"
             )
@@ -274,8 +353,8 @@ def parse_result_file(filename: str) -> Dict[str, List[Tuple]]:
         while i < len(lines):
             line = lines[i].strip()
 
-            # Skip empty lines
-            if not line:
+            # Skip empty lines and comment/metadata lines
+            if not line or line.startswith("#") or line.startswith("--"):
                 i += 1
                 continue
 
@@ -338,7 +417,10 @@ def main():
     parser.add_argument("input_file", nargs="?", default="result.txt",
                         help="Input file with partition data (default: result.txt)")
     parser.add_argument("--reference-date", metavar="YYYY-MM-DD",
-                        help="Reference date for tail-end gap detection (default: today UTC)")
+                        help="Reference date for tail-end gap detection (default: today in server timezone, else UTC)")
+    parser.add_argument("--timezone", metavar="TZ",
+                        help="Override server timezone (IANA name like Europe/Paris, or offset like +02:00). "
+                             "Defaults to the '# MYSQL_TIMEZONE:' header in the input file.")
     args = parser.parse_args()
 
     input_filename = args.input_file
@@ -350,11 +432,24 @@ def main():
             print("❌ Error: --reference-date must be in YYYY-MM-DD format")
             sys.exit(1)
 
+    # Resolve server timezone: CLI override > file header > none.
+    metadata = extract_metadata(input_filename)
+    if args.timezone:
+        server_tz = resolve_timezone(args.timezone, args.timezone)
+        tz_source = f"CLI override ({args.timezone})"
+    else:
+        server_tz = resolve_timezone(metadata["timezone_name"], metadata["timezone_offset"])
+        if server_tz is not None:
+            tz_source = f"file header ({metadata['timezone_name']} {metadata['timezone_offset'] or ''})".strip()
+        else:
+            tz_source = "none (falling back to UTC + fixed 86400 s/day)"
+
     analysis_filename = "partition_analysis.txt"
     sql_filename = "partition_fix.sql"
 
     print(f"{'=' * 70}")
     print(f"PARTITION CHECKER - Reading from {input_filename}")
+    print(f"Server timezone: {tz_source}")
     print(f"{'=' * 70}\n")
 
     # Parse input file
@@ -390,6 +485,7 @@ def main():
             f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         )
         analysis_file.write(f"Source: {input_filename}\n")
+        analysis_file.write(f"Server timezone: {tz_source}\n")
         analysis_file.write(f"{'=' * 70}\n")
 
         sql_file.write(f"-- {'=' * 68}\n")
@@ -398,6 +494,7 @@ def main():
             f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         )
         sql_file.write(f"-- Source: {input_filename}\n")
+        sql_file.write(f"-- Server timezone: {tz_source}\n")
         sql_file.write(f"-- {'=' * 68}\n")
         sql_file.write("-- \n")
         sql_file.write("-- ⚠️  WARNING: REVIEW CAREFULLY BEFORE EXECUTION!\n")
@@ -425,7 +522,7 @@ def main():
                 print(f"⚠️  Skipping {table_name} - no data provided")
                 continue
 
-            checker = PartitionChecker(table_name, partition_data, analysis_file, reference_date)
+            checker = PartitionChecker(table_name, partition_data, analysis_file, reference_date, server_timezone=server_tz)
             missing_dates = checker.display_report()
 
             if missing_dates:
