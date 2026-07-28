@@ -16,12 +16,19 @@ extract_result() {
     # If @@global.time_zone is 'SYSTEM', fall back to @@system_time_zone (the OS tz).
     # TIMEDIFF gives the current UTC offset as a robust fallback when the named
     # zone is an abbreviation (e.g. CEST) that ZoneInfo cannot resolve.
+    # Keep stderr out of tz_info: the mysql client emits a "Using a password on
+    # the command line interface can be insecure" warning on stderr, which would
+    # otherwise pollute the parsed timezone name/offset. Capture stderr
+    # separately and only treat genuine ERROR output as a failure.
+    tz_err_file=$(mktemp)
     tz_info=$(mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -D"$MYSQL_DATABASE" -Ne \
-        "SELECT IF(@@global.time_zone='SYSTEM', @@system_time_zone, @@global.time_zone), TIMEDIFF(NOW(), UTC_TIMESTAMP());" 2>&1)
-    if [[ "$tz_info" == ERROR* ]]; then
-        echo "$tz_info" >&2
+        "SELECT IF(@@global.time_zone='SYSTEM', @@system_time_zone, @@global.time_zone), TIMEDIFF(NOW(), UTC_TIMESTAMP());" 2>"$tz_err_file")
+    if grep -q '^ERROR' "$tz_err_file"; then
+        cat "$tz_err_file" >&2
+        rm -f "$tz_err_file"
         return 1
     fi
+    rm -f "$tz_err_file"
     tz_name=$(echo "$tz_info" | awk '{print $1}')
     tz_offset=$(echo "$tz_info" | awk '{print $2}')
     echo "# MYSQL_TIMEZONE: ${tz_name} ${tz_offset}"

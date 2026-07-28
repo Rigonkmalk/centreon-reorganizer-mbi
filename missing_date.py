@@ -11,10 +11,9 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Dict, Optional, Tuple
 
 try:
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    from zoneinfo import ZoneInfo
 except ImportError:  # Python < 3.9 fallback
     ZoneInfo = None  # type: ignore[assignment]
-    ZoneInfoNotFoundError = Exception  # type: ignore[assignment,misc]
 
 
 TIMEZONE_HEADER_RE = re.compile(
@@ -52,8 +51,6 @@ def resolve_timezone(name: Optional[str], offset: Optional[str] = None) -> Optio
     if name and ZoneInfo is not None:
         try:
             return ZoneInfo(name)
-        except ZoneInfoNotFoundError:
-            pass
         except Exception:
             pass
     if offset:
@@ -436,11 +433,19 @@ def main():
     metadata = extract_metadata(input_filename)
     if args.timezone:
         server_tz = resolve_timezone(args.timezone, args.timezone)
-        tz_source = f"CLI override ({args.timezone})"
+        if server_tz is not None:
+            tz_source = f"CLI override ({args.timezone})"
+        else:
+            tz_source = (
+                f"none (could not resolve --timezone '{args.timezone}'; "
+                "falling back to UTC + fixed 86400 s/day)"
+            )
     else:
         server_tz = resolve_timezone(metadata["timezone_name"], metadata["timezone_offset"])
         if server_tz is not None:
-            tz_source = f"file header ({metadata['timezone_name']} {metadata['timezone_offset'] or ''})".strip()
+            name = metadata["timezone_name"]
+            offset = metadata["timezone_offset"]
+            tz_source = f"file header ({name} {offset})" if offset else f"file header ({name})"
         else:
             tz_source = "none (falling back to UTC + fixed 86400 s/day)"
 
